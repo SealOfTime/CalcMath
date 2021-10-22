@@ -57,45 +57,82 @@ type Point struct {
 	Y float64
 }
 
-type DifferentialSolver interface {
-	solve(eq *equation) []Point
-}
-
 func main() {
 	r := bufio.NewReader(os.Stdin)
 	eq  := promptFunc(r)
-	b := promptRightBorder(r)
+	b := promptRightBorder(eq.x0, r)
 	h := promptStep(r)
-	precision := promptPrecision(r)
+	nac, precision := promptPrecision(r)
 
-	rk := rungeKuttaDiffSolver{
-		rightBorder: b,
-		step:        h,
-		precision:   precision,
-	}
+	p := preciseSolver{rightBorder: b, step: h}
+	rk := rungeKuttaDiffSolver{rightBorder: b, step: h}
+	rkStep, rkAns, rkErr := findStepForPrecision(&rk, eq, h, precision)
+	p.SetStep(rkStep)
+	ideal := p.Solve(eq)
 
-	ad := adamsDiffSolver{
-		rightBorder: b,
-		step:        h,
-		precision:   precision,
-	}
-
-	p := preciseSolver{
-		rightBorder: b,
-		step: h,
-		precision: precision,
-	}
-
-	ideal := p.solve(eq)
-	rkAns := rk.solve(eq)
-	adAns := ad.solve(eq)
-	fmt.Println(" i |     xi     | yi(Рун-Кут) | yi(Адамса) | yi(Точн.)  | ")
-	fmt.Println("-------------------------------------------")
+	fmt.Printf("Итоговый шаг для метода Рунге-Кутта %.5f для достижения точности %.5f\n", rkStep, precision)
+	fmt.Println("  i |     xi     |     yi     |yi(Рун-Кут) |   Погреш.  |")
+	fmt.Println("----------------------------------------------------------")
 	for i, p := range ideal {
-		fmt.Printf("%2d | % 10.5f | % 10.5f |  % 10.5f |  % 10.5f\n", i, p.X, rkAns[i].Y, adAns[i].Y, p.Y)
+		fmt.Printf(fmt.Sprintf("%%3d | %% 10.%df | %% 10.%df | %% 10.%df | %% 10.10f |\n", nac, nac, nac), i, p.X, p.Y, rkAns[i].Y, rkErr[i])
 	}
+
+	ad := adamsDiffSolver{rightBorder: b, step: h}
+	hAd, adAns, adErr := findStepForPrecision(&ad, eq, h, precision)
+	p.SetStep(hAd)
+	ideal = p.Solve(eq)
+
+	fmt.Printf("Итоговый шаг для метода Адамса %.5f для достижения точности %.5f\n", hAd, precision)
+	fmt.Println("  i |     xi     |     yi     |  yi(Адамса) |   Погреш.  |")
+	fmt.Println("----------------------------------------------------------")
+	for i, p := range ideal {
+		fmt.Printf(fmt.Sprintf("%%3d | %% 10.%df | %% 10.%df | %% 10.%df | %% 10.10f |\n", nac, nac, nac), i, p.X, p.Y, adAns[i].Y, adErr[i])
+	}
+
 	plot(eq, ideal, rkAns, adAns)
 	fmt.Println("Вы можете найти график в рабочей директории.")
+}
+
+type Solver interface {
+	Solve(eq *equation) []Point
+	SetStep(h float64)
+}
+
+func findStepForPrecision(solver Solver, eq *equation, h0, precision float64) (h float64, solution []Point, error []float64) {
+	h = h0
+	var solutionHalfStep []Point
+	maxErr := 0.0
+	for cont := true;
+		cont;
+		cont = maxErr > precision  {
+		solver.SetStep(h)
+		solution = solver.Solve(eq)
+
+		solver.SetStep(h/2)
+		solutionHalfStep = solver.Solve(eq)
+
+		maxErr = errorOfStep(solution[len(solution)-1].Y, solutionHalfStep[len(solutionHalfStep)-1].Y)
+
+		//for i := range solution {
+		//	e := errorOfStep(solution[i].Y, solutionHalfStep[i*2].Y)
+		//	if e > maxErr {
+		//		maxErr = e
+		//	}
+		//}
+		fmt.Printf("Погрешность %.10f при шаге %.10f\n", maxErr, h)
+		h = h / 2
+	}
+
+	error = make([]float64, len(solution))
+	for i := range solution {
+		error[i] = errorOfStep(solution[i].Y, solutionHalfStep[i*2].Y)
+	}
+
+	return 2*h, solution, error
+}
+
+func errorOfStep(yi, yiHalfStep float64) float64 {
+	return m.Abs(yi - yiHalfStep)/15
 }
 
 func promptFunc(r *bufio.Reader) *equation {
@@ -125,7 +162,7 @@ func promptFunc(r *bufio.Reader) *equation {
 	}
 }
 
-func promptRightBorder(r *bufio.Reader) float64 {
+func promptRightBorder(leftBorder float64, r *bufio.Reader) float64 {
 	fmt.Println("Настоятельно вас прошу ввести правую границу для решения задачи Коши: ")
 	var input float64
 	for {
@@ -139,6 +176,10 @@ func promptRightBorder(r *bufio.Reader) float64 {
 			continue
 		}
 
+		if input <= leftBorder {
+			fmt.Println("Правая граница должна быть строго больше левой границы, иначе всё, чем мы занимаемся, не имеет никакого смысла. Повторите, пожалуйста, свой ввод.")
+			continue
+		}
 		return input
 	}
 }
@@ -156,12 +197,15 @@ func promptStep(r *bufio.Reader) float64 {
 			fmt.Println("Вы ввели что-то не то. Быть может, это было не число. Быть может, какой-то странный символ. Итог один - пробуйте пока не получится.")
 			continue
 		}
-
+		if input <= 0 {
+			fmt.Println("Вообще-то шаг должен быть строго больше нуля. Иначе это ну бессмыслица какая-то получается. Подумайте над этим ещё раз.")
+			continue
+		}
 		return input
 	}
 }
 
-func promptPrecision(r *bufio.Reader) float64 {
+func promptPrecision(r *bufio.Reader) (int, float64) {
 	fmt.Println("Настоятельно вас прошу ввести точность (количество знаков после запятой) для применения численных методов: ")
 	var input int64
 	for {
@@ -175,7 +219,7 @@ func promptPrecision(r *bufio.Reader) float64 {
 			continue
 		}
 
-		return m.Pow(10, -float64(input))
+		return int(input), m.Pow(10, -float64(input))
 	}
 }
 
@@ -216,9 +260,6 @@ func plot(eq *equation, precise []Point, runge []Point, adams []Point) {
 	line.AddSeries(
 		"Точное решение",
 		convertToLineData(precise),
-		charts.WithLineChartOpts(opts.LineChart{
-			Smooth:       true,
-		}),
 	)
 	line.AddSeries(
 		"Рунге-Кутта 4 порядка",

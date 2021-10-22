@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	m "math"
 )
 
@@ -11,7 +10,11 @@ type adamsDiffSolver struct {
 	precision float64
 }
 
-func (s *adamsDiffSolver) solve(eq *equation) []Point {
+func (s *adamsDiffSolver) SetStep(h float64) {
+	s.step = h
+}
+
+func (s *adamsDiffSolver) Solve(eq *equation) []Point {
 	noSteps := int((s.rightBorder - eq.x0)/s.step)
 
 	P := make([]Point, noSteps+1)
@@ -19,7 +22,7 @@ func (s *adamsDiffSolver) solve(eq *equation) []Point {
 		rightBorder: eq.x0 + 4 * s.step,
 		step:        s.step,
 		precision:   s.precision,
-	}).solve(eq)
+	}).Solve(eq)
 
 	copy(P, startPoints)
 
@@ -37,6 +40,5 @@ func (s *adamsDiffSolver) solve(eq *equation) []Point {
 
 		f[i+1] = eq.exec(P[i+1].X, P[i+1].Y)
 	}
-	fmt.Printf("%v\n", f)
 	return P
 }

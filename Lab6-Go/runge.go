@@ -6,7 +6,11 @@ type rungeKuttaDiffSolver struct {
 	precision float64
 }
 
-func (s *rungeKuttaDiffSolver) solve(eq *equation) []Point {
+func (s *rungeKuttaDiffSolver) SetStep(h float64) {
+	s.step = h
+}
+
+func (s *rungeKuttaDiffSolver) Solve(eq *equation) []Point {
 	noSteps := int((s.rightBorder - eq.x0)/s.step)
 
 	P := make([]Point, noSteps+1)

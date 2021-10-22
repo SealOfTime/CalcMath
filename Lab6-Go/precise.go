@@ -6,7 +6,11 @@ type preciseSolver struct {
 	precision float64
 }
 
-func (s *preciseSolver) solve(eq *equation) []Point {
+func (s *preciseSolver) SetStep(h float64) {
+	s.step = h
+}
+
+func (s *preciseSolver) Solve(eq *equation) []Point {
 	noSteps := int((s.rightBorder - eq.x0)/s.step)
 
 	P := make([]Point, noSteps+1)
